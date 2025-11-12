@@ -1,0 +1,75 @@
+version: "3.7"
+
+services:
+  # 1. Base de Données pour Keycloak et Guacamole
+  database:
+    image: postgres:14-alpine # PostgreSQL est souvent préféré pour Keycloak
+    container_name: auth-db
+    environment:
+      POSTGRES_DB: keycloak_db
+      POSTGRES_USER: kc_user
+      POSTGRES_PASSWORD: <mot_de_passe_kc_db>
+    volumes:
+      - ./db-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - identity-net
+
+  # 2. Serveur d'Authentification Centralisé (Keycloak)
+  keycloak:
+    image: jboss/keycloak:latest
+    container_name: keycloak-server
+    ports:
+      - "8080:8080"
+    environment:
+      KC_DB: postgres
+      KC_DB_URL_HOST: database
+      KC_DB_USERNAME: kc_user
+      KC_DB_PASSWORD: <mot_de_passe_kc_db>
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: <mot_de_passe_admin_kc>
+      KC_HOSTNAME: <IP_VM_Docker_Host>:8080 # Important pour les redirections
+    depends_on:
+      - database
+    restart: unless-stopped
+    networks:
+      - identity-net
+
+  # 3. Guacd (Le service de connexion RDP/SSH)
+  guacd:
+    image: guacamole/guacd:latest
+    container_name: guacd
+    ports:
+      - "4822:4822"
+    restart: unless-stopped
+    networks:
+      - identity-net
+      
+  # 4. Guacamole Client (Interface Web avec support OIDC/Keycloak)
+  guacamole:
+    image: guacamole/guacamole:latest
+    container_name: guacamole-web
+    # NOTE: Nous changeons le port Web car Keycloak utilise 8080
+    ports:
+      - "8081:8080" 
+    environment:
+      GUACD_HOSTNAME: guacd
+      GUACD_PORT: 4822
+      # Configuration pour l'authentification OIDC (OpenID Connect) via Keycloak
+      GUAC_AUTH_PROVIDER: org.apache.guacamole.auth.oidc.AuthenticationProvider
+      GUAC_OIDC_AUTHORIZATION_ENDPOINT: http://keycloak:8080/realms/master/protocol/openid-connect/auth
+      GUAC_OIDC_TOKEN_ENDPOINT: http://keycloak:8080/realms/master/protocol/openid-connect/token
+      GUAC_OIDC_JWKS_ENDPOINT: http://keycloak:8080/realms/master/protocol/openid-connect/certs
+      GUAC_OIDC_CLIENT_ID: guacamole-client
+      GUAC_OIDC_CLIENT_SECRET: <secret_guacamole_oidc>
+      GUAC_OIDC_REDIRECT_URI: http://<IP_VM_Docker_Host>:8081/guacamole/
+    depends_on:
+      - keycloak
+      - guacd
+    restart: unless-stopped
+    networks:
+      - identity-net
+
+networks:
+  identity-net:
+    driver: bridge
