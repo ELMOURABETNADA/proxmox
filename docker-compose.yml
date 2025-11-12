@@ -1,41 +1,61 @@
 version: "3.7"
 
 services:
-  # 1. Base de Données pour Keycloak et Guacamole
+  # 1. Base de Données (MySQL)
   database:
-    image: postgres:14-alpine # PostgreSQL est souvent préféré pour Keycloak
+    image: mysql:8.0
     container_name: auth-db
     environment:
-      POSTGRES_DB: keycloak_db
-      POSTGRES_USER: kc_user
-      POSTGRES_PASSWORD: <mot_de_passe_kc_db>
+      # Remplacer les valeurs par vos mots de passe sécurisés
+      MYSQL_ROOT_PASSWORD: <votre_mot_de_passe_root_db>
+      MYSQL_DATABASE: keycloak_db # Base pour Keycloak (et Guacamole si vous le liez ici)
+      MYSQL_USER: kc_user
+      MYSQL_PASSWORD: <mot_de_passe_kc_db>
     volumes:
-      - ./db-data:/var/lib/postgresql/data
+      - ./mysql-data:/var/lib/mysql
     restart: unless-stopped
     networks:
       - identity-net
 
-  # 2. Serveur d'Authentification Centralisé (Keycloak)
+  # 2. Serveur d'Annuaire (Simulé : OpenLDAP)
+  ldap_server:
+    image: osixia/openldap:1.5.0
+    container_name: ldap-server
+    environment:
+      LDAP_ORGANISATION: "ENSATE Virtual TP"
+      LDAP_DOMAIN: "ensate.lan"
+      # Utilisateur Admin pour Keycloak
+      LDAP_ADMIN_PASSWORD: <mot_de_passe_ldap_admin>
+    ports:
+      - "389:389"
+    volumes:
+      - ./ldap-data:/var/lib/ldap
+    restart: unless-stopped
+    networks:
+      - identity-net
+      
+  # 3. Serveur d'Authentification Centralisé (Keycloak)
   keycloak:
     image: jboss/keycloak:latest
     container_name: keycloak-server
     ports:
       - "8080:8080"
     environment:
-      KC_DB: postgres
+      KC_DB: mysql
       KC_DB_URL_HOST: database
       KC_DB_USERNAME: kc_user
       KC_DB_PASSWORD: <mot_de_passe_kc_db>
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: <mot_de_passe_admin_kc>
-      KC_HOSTNAME: <IP_VM_Docker_Host>:8080 # Important pour les redirections
+      KC_HOSTNAME: <IP_VM_Docker_Host>:8080 
     depends_on:
       - database
+      - ldap_server
     restart: unless-stopped
     networks:
       - identity-net
 
-  # 3. Guacd (Le service de connexion RDP/SSH)
+  # 4. Guacd (Le service de connexion RDP/SSH)
   guacd:
     image: guacamole/guacd:latest
     container_name: guacd
@@ -45,11 +65,11 @@ services:
     networks:
       - identity-net
       
-  # 4. Guacamole Client (Interface Web avec support OIDC/Keycloak)
+  # 5. Guacamole Client (Interface Web avec support OIDC/Keycloak)
   guacamole:
     image: guacamole/guacamole:latest
     container_name: guacamole-web
-    # NOTE: Nous changeons le port Web car Keycloak utilise 8080
+    # NOTE: Port 8081 car Keycloak utilise 8080
     ports:
       - "8081:8080" 
     environment:
@@ -57,9 +77,10 @@ services:
       GUACD_PORT: 4822
       # Configuration pour l'authentification OIDC (OpenID Connect) via Keycloak
       GUAC_AUTH_PROVIDER: org.apache.guacamole.auth.oidc.AuthenticationProvider
-      GUAC_OIDC_AUTHORIZATION_ENDPOINT: http://keycloak:8080/realms/master/protocol/openid-connect/auth
-      GUAC_OIDC_TOKEN_ENDPOINT: http://keycloak:8080/realms/master/protocol/openid-connect/token
-      GUAC_OIDC_JWKS_ENDPOINT: http://keycloak:8080/realms/master/protocol/openid-connect/certs
+      # Le service Keycloak est joignable via son nom de conteneur
+      GUAC_OIDC_AUTHORIZATION_ENDPOINT: http://keycloak:8080/realms/ENSATE/protocol/openid-connect/auth 
+      GUAC_OIDC_TOKEN_ENDPOINT: http://keycloak:8080/realms/ENSATE/protocol/openid-connect/token
+      GUAC_OIDC_JWKS_ENDPOINT: http://keycloak:8080/realms/ENSATE/protocol/openid-connect/certs
       GUAC_OIDC_CLIENT_ID: guacamole-client
       GUAC_OIDC_CLIENT_SECRET: <secret_guacamole_oidc>
       GUAC_OIDC_REDIRECT_URI: http://<IP_VM_Docker_Host>:8081/guacamole/
