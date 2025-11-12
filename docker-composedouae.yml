@@ -1,96 +1,96 @@
-version 3.9
+version: "3.9"
 
-services
+services:
   # 🔹 Base de données MySQL pour Guacamole
-  mysql
-    image mysql8.0
-    container_name mysql
-    restart always
-    environment
-      MYSQL_ROOT_PASSWORD ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE guacamole_db
-      MYSQL_USER guacamole_user
-      MYSQL_PASSWORD ${MYSQL_PASSWORD}
-    command --default-authentication-plugin=mysql_native_password
-    volumes
-      - db_datavarlibmysql
-    networks
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: guacamole_db
+      MYSQL_USER: guacamole_user
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
       - backend
 
   # 🔹 Annuaire LDAP (utilisateurs centralisés)
-  openldap
-    image osixiaopenldap1.5.0
-    container_name openldap
-    restart always
-    environment
-      LDAP_ORGANISATION TP LAB
-      LDAP_DOMAIN tplab.local
-      LDAP_ADMIN_PASSWORD ${LDAP_ADMIN_PASSWORD}
-    volumes
-      - ldap_datavarlibldap
-      - ldap_configetcldapslapd.d
-      - .openldapbootstrap.ldifcontainerserviceslapdassetsconfigbootstrapldifcustombootstrap.ldif
-    ports
-      - 389389
-    networks
+  openldap:
+    image: osixia/openldap:1.5.0
+    container_name: openldap
+    restart: always
+    environment:
+      LDAP_ORGANISATION: "TP LAB"
+      LDAP_DOMAIN: "tplab.local"
+      LDAP_ADMIN_PASSWORD: ${LDAP_ADMIN_PASSWORD}
+    volumes:
+      - ldap_data:/var/lib/ldap
+      - ldap_config:/etc/ldap/slapd.d
+      - ./openldap/bootstrap.ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom/bootstrap.ldif
+    ports:
+      - "389:389"
+    networks:
       - backend
 
   # 🔹 Keycloak (authentification SSO)
-  keycloak
-    image quay.iokeycloakkeycloak25.0.0
-    container_name keycloak
-    command [start-dev]
-    restart always
-    environment
-      KC_DB dev-mem
-      KEYCLOAK_ADMIN admin
-      KEYCLOAK_ADMIN_PASSWORD ${KEYCLOAK_ADMIN_PASSWORD}
-      KC_HOSTNAME keycloak.local
-      KC_HTTP_PORT 8080
-    ports
-      - 80808080
-    networks
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0.0
+    container_name: keycloak
+    command: ["start-dev"]
+    restart: always
+    environment:
+      KC_DB: dev-mem
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HOSTNAME: keycloak.local
+      KC_HTTP_PORT: 8080
+    ports:
+      - "8080:8080"
+    networks:
       - backend
-    depends_on
+    depends_on:
       - openldap
 
   # 🔹 guacd (Guacamole daemon)
-  guacd
-    image guacamoleguacd1.5.4
-    container_name guacd
-    restart always
-    networks
+  guacd:
+    image: guacamole/guacd:1.5.4
+    container_name: guacd
+    restart: always
+    networks:
       - backend
 
   # 🔹 Guacamole WebApp
-  guacamole
-    image guacamoleguacamole1.5.4
-    container_name guacamole
-    restart always
-    depends_on
+  guacamole:
+    image: guacamole/guacamole:1.5.4
+    container_name: guacamole
+    restart: always
+    depends_on:
       - mysql
       - guacd
       - keycloak
-    environment
-      GUACD_HOSTNAME guacd
-      MYSQL_HOSTNAME mysql
-      MYSQL_DATABASE guacamole_db
-      MYSQL_USER guacamole_user
-      MYSQL_PASSWORD ${MYSQL_PASSWORD}
-      MYSQL_PORT 3306
-    volumes
-      - .guacamoleextensionsetcguacamoleextensions
-      - .guacamoleguacamole.propertiesetcguacamoleguacamole.properties
-    ports
-      - 80818080    # Accès web Guacamole
-    networks
+    environment:
+      GUACD_HOSTNAME: guacd
+      MYSQL_HOSTNAME: mysql
+      MYSQL_DATABASE: guacamole_db
+      MYSQL_USER: guacamole_user
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_PORT: 3306
+    volumes:
+      - ./guacamole/extensions:/etc/guacamole/extensions
+      - ./guacamole/guacamole.properties:/etc/guacamole/guacamole.properties
+    ports:
+      - "8081:8080"    # Accès web Guacamole
+    networks:
       - backend
 
-networks
-  backend
-    driver bridge
+networks:
+  backend:
+    driver: bridge
 
-volumes
-  db_data
-  ldap_data
-  ldap_config
+volumes:
+  db_data:
+  ldap_data:
+  ldap_config:
